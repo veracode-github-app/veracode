@@ -64,12 +64,7 @@ jobs:
           vid: ${{ secrets.VERACODE_API_ID }}
           vkey: ${{ secrets.VERACODE_API_KEY }}
           appname: ${{ inputs.profile_name }}
-          # token: ${{ inputs.token }}
-          # check_run_id: ${{ inputs.check_run_id }}
-          # source_repository: ${{ inputs.source_repository }}
-          # fail_checks_on_policy: ${{ inputs.fail_checks_on_policy }}
-          # fail_checks_on_error: ${{ inputs.fail_checks_on_error }}
-
+          
       # run the pipeline scan action
       - name: Veracode Pipeline-Scan
         id: pipeline-scan
