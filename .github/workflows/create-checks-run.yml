@@ -1,0 +1,57 @@
+
+name: Create Checks and Save Metadata
+
+on:
+  workflow_call:
+    inputs:
+      token:
+        required: true
+        type: string
+      repository:
+        required: true
+        type: string
+      sha:
+        required: true
+        type: string
+      name:
+        required: true
+        type: string
+      run_id:
+        required: true
+        type: string
+      owner:
+        required: true
+        type: string
+      event_type:
+        required: true
+        type: string
+
+jobs:
+  create-checks-run:
+    name: Create Checks Run
+    runs-on: ubuntu-latest
+    steps:
+    - uses: veracode/veracode-checks-action@main
+      name: Create Checks Run
+      id: create_checks_run
+      with:
+        token: ${{ inputs.token }}
+        repo: ${{ inputs.owner }}/${{ inputs.repository }}
+        sha: ${{ inputs.sha }}
+        name: ${{ inputs.name }}
+        status: 'in_progress'
+        details_url: "https://github.com/${{ inputs.owner }}/veracode/actions/runs/${{ inputs.run_id }}"
+    - name: Create metadata
+      id: create_metadata_json
+      run: |
+        echo '{
+          "check_run_type": "${{ inputs.event_type }}",
+          "repository_name": "${{ inputs.repository }}",
+          "check_run_id": ${{ steps.create_checks_run.outputs.check_id }},
+          "sha": "${{ inputs.sha }}"
+        }' > workflow-metadata.json
+    - name: Save metadata
+      uses: actions/upload-artifact@v3
+      with:
+        name: workflow-metadata
+        path: workflow-metadata.json

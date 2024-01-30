@@ -1,0 +1,59 @@
+name: Binary Ready - Veracode Static Code Analysis
+
+run-name: Binary Ready - Static Code Analysis - ${{ github.event.client_payload.repository.name }}
+
+concurrency:
+  group: ${{ github.event.client_payload.event_type }}-${{ github.event.client_payload.repository.name }}-${{ github.event.client_payload.branch }}
+  cancel-in-progress: true
+
+on:
+  repository_dispatch:
+    types: [binary-ready-veracode-sast-policy-scan]
+
+jobs:
+  create-checks-run:
+    name: Create Checks Run
+    runs-on: ubuntu-latest
+    outputs:
+      check_run_id: ${{ steps.create_checks_run.outputs.check_id }}
+    steps:
+      - uses: veracode/veracode-checks-action@main
+        name: Create Checks Run
+        id: create_checks_run
+        with:
+          token: ${{ github.event.client_payload.token }}
+          repo: ${{ github.event.client_payload.repository.full_name }}
+          sha: ${{ github.event.client_payload.sha }}
+          name: 'Veracode Static Code Analysis'
+          status: 'in_progress'
+          details_url: 'https://github.com/${{ github.event.client_payload.repository.owner }}/veracode/actions/runs/${{ github.run_id }}'
+      - name: Create metadata
+        id: create_metadata_json
+        run: |
+          echo '{
+            "check_run_type": "${{ github.event.client_payload.event_type }}",
+            "repository_name": "${{ github.event.client_payload.repository.name }}",
+            "check_run_id": ${{ steps.create_checks_run.outputs.check_id }},
+            "sha": "${{ github.event.client_payload.sha }}"
+          }' > workflow-metadata.json
+          echo "check_run_id=${{ steps.create_checks_run.outputs.check_id }}" >> "$GITHUB_OUTPUT"
+      - name: Save metadata
+        uses: actions/upload-artifact@v3
+        with:
+          name: workflow-metadata
+          path: workflow-metadata.json
+
+  policy_scan:
+    needs: create-checks-run
+    uses: ./.github/workflows/veracode-policy-scan.yml
+    with:
+      artifact_repository: ${{ github.event.client_payload.repository.full_name }}
+      source_repository: ${{ github.event.client_payload.repository.full_name }}
+      run_id: ${{ github.event.client_payload.run_id }}
+      token: ${{ github.event.client_payload.token }}
+      profile_name:  ${{ github.event.client_payload.repository.full_name }} # TBU
+      check_run_id: ${{ needs.create-checks-run.outputs.check_run_id }}
+      moddules_to_scan: ${{ github.event.client_payload.modules_to_scan }}
+      fail_checks_on_policy: ${{ github.event.client_payload.fail_checks.fail_checks_on_policy }}
+      fail_checks_on_error: ${{ github.event.client_payload.fail_checks.fail_checks_on_error }}
+    secrets: inherit

@@ -1,0 +1,99 @@
+name: Veracode Static Policy Scanner
+
+on:
+  workflow_call:
+    inputs:
+      artifact_repository:
+        required: true
+        type: string
+      source_repository:
+        required: true
+        type: string
+      run_id:
+        required: true
+        type: string
+      token:
+        required: true
+        type: string
+      profile_name:
+        required: true
+        type: string
+      check_run_id:
+        required: true
+        type: string
+      moddules_to_scan:
+        required: true
+        type: string
+      fail_checks_on_policy:
+        required: true
+        type: boolean
+      fail_checks_on_error:
+        required: true
+        type: boolean
+
+jobs:
+  policy_scan:
+    runs-on: ubuntu-latest
+    name: policy scan
+
+    steps:
+      - name: Download artifact V4 # for some reason, V4 cannot grab the artfiact in the current workflow.
+        if: ${{ inputs.run_id != github.run_id }}
+        id: download-artifact
+        uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ inputs.token }}
+          run-id: ${{ inputs.run_id }}
+          repository: ${{ inputs.artifact_repository }}
+          name: veracode-artifact
+          path: ./veracode-artifact
+
+      - name: Download artifact V3
+        if: ${{ inputs.run_id == github.run_id }}
+        uses: actions/download-artifact@v3
+        with:
+          name: veracode-artifact
+          path: ./veracode-artifact
+
+      # # get the compiled binary from a previous job
+      # - name: get archive
+      #   uses: actions/download-artifact@v3
+      #   with:
+      #     name: veracode-artifact
+      #     path: ./veracode_artifact_directory
+
+      - name: Get the name of the downloaded files
+        run: |
+          artifact_file=$(ls -1 ./veracode-artifact | head -n 1)
+          echo "veracode_artifact=$artifact_file" >> $GITHUB_ENV
+      # run the policy scan action
+      - name: Veracode Upload and Scan Action Step
+        uses: veracode/uploadandscan-action@main
+        id: upload_and_scan
+        with:
+          appname: ${{ inputs.profile_name }}
+          createprofile: true
+          policy: 'Verademo Policy'
+          version: '${{ github.run_id }}'
+          filepath: ./veracode-artifact/${{ env.veracode_artifact }}
+          deleteincompletescan: true
+          vid: '${{ secrets.VERACODE_API_ID }}'
+          vkey: '${{ secrets.VERACODE_API_KEY }}'
+          #scanpollinginterval: 30
+          scantimeout: 60
+          include: ${{ inputs.moddules_to_scan }}
+          failbuild: false
+          #teams: "Team 7, Team 5, Team A"
+
+      - name: Veracode Policy Results
+        uses: veracode/workflow-app-helper@main
+        with:
+          action: 'preparePolicyResults'
+          token: ${{ inputs.token }}
+          check_run_id: ${{ inputs.check_run_id }}
+          vid: ${{ secrets.VERACODE_API_ID }}
+          vkey: ${{ secrets.VERACODE_API_KEY }}
+          appname: ${{ inputs.profile_name }}
+          source_repository: ${{ inputs.source_repository }}
+          fail_checks_on_policy: ${{ inputs.fail_checks_on_policy }}
+          fail_checks_on_error: ${{ inputs.fail_checks_on_error }}

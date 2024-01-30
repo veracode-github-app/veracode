@@ -1,0 +1,79 @@
+name: Veracode Build Java Maven Application
+
+on:
+  workflow_call:
+    inputs:
+      repository:
+        required: true
+        type: string
+      ref:
+        required: true
+        type: string
+      token:
+        required: true
+        type: string
+  
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+      with:
+        repository: ${{ inputs.repository }}
+        ref: ${{ inputs.ref }}
+        token: ${{ inputs.token }}
+    - uses: actions/setup-java@v3
+      with:
+        java-version: 8
+        distribution: temurin
+    - name: Cache Maven Dependencies
+      uses: actions/cache@v3
+      with:
+        path: ~/.m2
+        key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
+    - name: Build with Maven
+      run: mvn clean package
+      
+    - name: Identify the Artifact
+      id: identify
+      run: |
+       mkdir -p ./veracode_artifacts
+       # Find all pom.xml files in the current directory and its subdirectories
+       find . -name 'pom.xml' -print0 | while IFS= read -r -d '' pom_file; do
+         # Check if the pom.xml has packaging type "pom" using mvn help:evaluate
+         packaging_type=$(mvn help:evaluate -f "$pom_file" -Dexpression=project.packaging -q -DforceStdout)
+         if [ "$packaging_type" = "pom" ]; then
+           echo "Skipping parent POM: $pom_file"
+           continue
+         fi
+
+         # Extract final artifact name using mvn help:evaluate
+         artifact_name=$(mvn help:evaluate -f "$pom_file" -Dexpression=project.build.finalName -q -DforceStdout)
+         # Determine the artifact extension based on packaging type
+         case "$packaging_type" in
+           war)
+             artifact_extension=".war"
+             ;;
+           ear)
+             artifact_extension=".ear"
+             ;;
+           *)
+             artifact_extension=".jar"
+             ;;
+         esac
+
+         # Build the path to the artifact
+         mvn_artifact=$(dirname "$pom_file")"/target/$artifact_name$artifact_extension"
+         # Check if the artifact file exists and move it to the target directory
+         if [ -f "$mvn_artifact" ]; then
+           echo "Moving artifact '$mvn_artifact' to ./veracode_artifacts/"
+           mv "$mvn_artifact" ./veracode_artifacts/
+        else
+          echo "Artifact '$mvn_artifact' not found for '$pom_file'"
+        fi
+       done
+        
+    - uses: actions/upload-artifact@v3
+      with:
+        name: veracode-artifact
+        path: ./veracode_artifacts/

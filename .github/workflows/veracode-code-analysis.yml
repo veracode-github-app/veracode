@@ -1,0 +1,114 @@
+name: Veracode Static Code Analysis
+
+run-name: Static Code Analysis - ${{ github.event.client_payload.repository.name }}
+
+concurrency:
+  group: ${{ github.event.client_payload.event_type }}-${{ github.event.client_payload.repository.name }}-${{ github.event.client_payload.branch }}
+  cancel-in-progress: true
+
+on:
+  repository_dispatch:
+    types:
+      - java-maven-pipeline-scan
+      - java-gradle-pipeline-scan
+      - source-code-pipeline-scan
+      - dot-net-pipeline-scan
+      - dot-net-policy-scan
+      - java-maven-policy-scan
+      - java-gradle-policy-scan
+      - source-code-policy-scan
+      - go-policy-scan
+      - go-pipeline-scan
+      - dart-policy-scan
+      - dart-pipeline-scan
+      - php-pipeline-scan
+      - php-policy-scan
+      - tsql-pipeline-scan
+      - tsql-policy-scan
+      - plsql-pipeline-scan
+      - plsql-policy-scan
+
+jobs:
+  create-checks-run:
+    name: Create Checks Run
+    runs-on: ubuntu-latest
+    outputs:
+      event_name: ${{ steps.extract_language_and_build.outputs.event_name }}
+      check_run_id: ${{ steps.create_checks_run.outputs.check_id }}
+    steps:
+      - uses: veracode/veracode-checks-action@main
+        name: Create Checks Run
+        id: create_checks_run
+        with:
+          token: ${{ github.event.client_payload.token }}
+          repo: ${{ github.event.client_payload.repository.full_name }}
+          sha: ${{ github.event.client_payload.sha }}
+          name: 'Veracode Static Code Analysis'
+          status: 'in_progress'
+          details_url: 'https://github.com/${{ github.event.client_payload.repository.owner }}/veracode/actions/runs/${{ github.run_id }}'
+      - name: Create metadata
+        id: create_metadata_json
+        run: |
+          echo '{
+            "check_run_type": "${{ github.event.client_payload.event_type }}",
+            "repository_name": "${{ github.event.client_payload.repository.name }}",
+            "check_run_id": ${{ steps.create_checks_run.outputs.check_id }},
+            "sha": "${{ github.event.client_payload.sha }}"
+          }' > workflow-metadata.json
+          echo "check_run_id=${{ steps.create_checks_run.outputs.check_id }}" >> "$GITHUB_OUTPUT"
+      - name: Save metadata
+        uses: actions/upload-artifact@v3
+        with:
+          name: workflow-metadata
+          path: workflow-metadata.json
+      - name: Extract Language and Build
+        id: extract_language_and_build
+        run: |
+          echo "Extracting language and build information"
+          event_name=${{ github.event.action }}
+          event_name=${event_name%-*} # Remove -scan
+          event_name=${event_name%-*} # Remove one more time to get rid of the "-policy" or "-pipeline"
+          echo "Extracted Language: $event_name"
+          echo "event_name=$event_name" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: create-checks-run
+    uses: ./.github/workflows/veracode-build-artifact-for-scanning.yml
+    with:
+      repository: ${{ github.event.client_payload.repository.full_name }}
+      ref: ${{ github.event.client_payload.sha }}
+      token: ${{ github.event.client_payload.token }}
+      event_name: ${{ needs.create-checks-run.outputs.event_name }}
+    secrets: inherit
+
+  pipeline_scan:
+    # needs the build step before this job will start running
+    needs: [build, create-checks-run]
+    if: contains(github.event.action, 'pipeline')
+    uses: ./.github/workflows/veracode-pipeline-scan.yml
+    with:
+      artifact_repository: ${{ github.repository }}
+      source_repository: ${{ github.event.client_payload.repository.full_name }}
+      run_id: ${{ github.run_id }}
+      token: ${{ github.event.client_payload.token }}
+      profile_name: ${{ github.event.client_payload.profile_name }}
+      check_run_id: ${{ needs.create-checks-run.outputs.check_run_id }}
+      fail_checks_on_policy: ${{ github.event.client_payload.fail_checks.fail_checks_on_policy }}
+      fail_checks_on_error: ${{ github.event.client_payload.fail_checks.fail_checks_on_error }}
+    secrets: inherit
+
+  policy_scan:
+    needs: [build, create-checks-run]
+    if: contains(github.event.action, 'policy')
+    uses: ./.github/workflows/veracode-policy-scan.yml
+    with:
+      artifact_repository: ${{ github.repository }}
+      source_repository: ${{ github.event.client_payload.repository.full_name }}
+      run_id: ${{ github.run_id }}
+      token: ${{ github.event.client_payload.token }}
+      profile_name: ${{ github.event.client_payload.profile_name }}
+      moddules_to_scan: ${{ github.event.client_payload.modules_to_scan }}
+      check_run_id: ${{ needs.create-checks-run.outputs.check_run_id }}
+      fail_checks_on_policy: ${{ github.event.client_payload.fail_checks.fail_checks_on_policy }}
+      fail_checks_on_error: ${{ github.event.client_payload.fail_checks.fail_checks_on_error }}
+    secrets: inherit

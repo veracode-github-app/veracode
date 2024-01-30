@@ -1,0 +1,91 @@
+name: Veracode Static Pipeline Scanner
+
+on:
+  workflow_call:
+    inputs:
+      artifact_repository:
+        required: true
+        type: string
+      source_repository:
+        required: true
+        type: string
+      run_id:
+        required: true
+        type: string
+      token:
+        required: true
+        type: string
+      profile_name:
+        required: true
+        type: string
+      check_run_id:
+        required: true
+        type: string
+      fail_checks_on_policy:
+        required: true
+        type: boolean
+      fail_checks_on_error:
+        required: true
+        type: boolean
+  
+jobs:
+  pipeline_scan:
+    runs-on: ubuntu-latest
+    name: pipeline scan
+
+    steps:
+      - name: Download artifact V4 # for some reason, V4 cannot grab the artfiact in the current workflow.
+        if: ${{ inputs.run_id != github.run_id }}
+        id: download-artifact
+        uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ inputs.token }}
+          run-id: ${{ inputs.run_id }}
+          repository: ${{ inputs.artifact_repository }}
+          name: veracode-artifact
+          path: ./veracode-artifact
+          
+      - name: Download artifact V3
+        if: ${{ inputs.run_id == github.run_id }}
+        uses: actions/download-artifact@v3
+        with:
+          name: veracode-artifact
+          path: ./veracode-artifact
+      
+      - name: Get the name of the downloaded files
+        run: |
+          artifact_file=$(ls -1 ./veracode-artifact | head -n 1)
+          echo "veracode_artifact=$artifact_file" >> $GITHUB_ENV
+      - name: Get Veracode Policy Name
+        uses: veracode/workflow-app-helper@main
+        id: get_policy_name
+        with:
+          action: 'getPolicyNameByProfileName'
+          vid: ${{ secrets.VERACODE_API_ID }}
+          vkey: ${{ secrets.VERACODE_API_KEY }}
+          appname: ${{ inputs.profile_name }}
+
+      # run the pipeline scan action
+      - name: Veracode Pipeline-Scan
+        id: pipeline-scan
+        uses: veracode/Veracode-pipeline-scan-action@v1.0.11
+        with:
+          vid: ${{ secrets.VERACODE_API_ID }}
+          vkey: ${{ secrets.VERACODE_API_KEY }}
+          file: ./veracode-artifact/${{ env.veracode_artifact }}
+          fail_build: false
+          veracode_policy_name: ${{ steps.get_policy_name.outputs.policy_name }}
+          # include: Verademo-dotnet.dll
+
+      - name: Veracode Pipeline Results
+        uses: veracode/workflow-app-helper@main
+        with:
+          action: 'preparePipelineResults'
+          token: ${{ inputs.token }}
+          check_run_id: ${{ inputs.check_run_id }}
+          vid: ${{ secrets.VERACODE_API_ID }}
+          vkey: ${{ secrets.VERACODE_API_KEY }}
+          appname: ${{ inputs.profile_name }}
+          source_repository: ${{ inputs.source_repository }}
+          fail_checks_on_policy: ${{ inputs.fail_checks_on_policy }}
+          fail_checks_on_error: ${{ inputs.fail_checks_on_error }}
