@@ -1,3 +1,5 @@
+30 Jan 2024: This Veracode Repository contains workflows enabled for Baseline Filtering for Veracode Pipeline scanner
+
 # Veracode GitHub App  
 
 This reposrity includes the default workflows that are required for the Veracode GitHub app to function correctly. In addtion it includes the configuration file (veracode.yml).  
